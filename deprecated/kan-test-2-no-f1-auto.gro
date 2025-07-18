@@ -1,0 +1,226 @@
+include gro
+
+//Configuracion del ambiente
+set ("dt", 0.1);
+set ("population_max", 10000);
+
+
+//Configuracion de Señales
+set ("signals", 1.0);
+set ("signals_draw", 1.0);
+grid("continuous", "gro_original", 10, 10, 8);
+
+
+m1 := s_signal([kdiff := 0.5, kdeg := 0.2]);
+f1hi := s_signal([kdiff := 0.5, kdeg := 0.3]);
+f1lo := s_signal([kdiff := 0.5, kdeg := 0.3]);
+route1 := "/Users/matia/Downloads/";
+
+fp := fopen (route1 <> "dumpSingleNof1auto.csv", "w" );
+ft := fopen (route1 <> "dumpMultipleNof1auto.csv", "w");
+
+t := 0;
+
+
+//Estados Posibles
+genes([		name := "base",
+			proteins := {"GM1", "Gbase"},
+			promoter := [function := "AND",
+			transcription_factors := {"Gprod"},
+			noise := [toOff := 0, toOn := 0, noise_time:= 0]],
+			prot_act_times := [times := {20,0}, variabilities := {0,0}],
+			prot_deg_times := [times := {10,0}, variabilities := {0.0,0}]]);
+
+genes([		name := "1b1m",
+			proteins := {"GM1", "GM1m", "G1b1m"},
+			promoter := [function := "AND",
+			transcription_factors := {"Gprod"},
+			noise := [toOff := 0, toOn := 0, noise_time:= 0]],
+			prot_act_times := [times := {20,20,0}, variabilities := {0,0,0}],
+			prot_deg_times := [times := {10, 10,0}, variabilities := {0.0, 0.0,0}]]);
+
+
+genes([		name := "1m",
+			proteins := {"GM1m", "G1m"},
+			promoter := [function := "AND",
+			transcription_factors := {"Gprod"},
+			noise := [toOff := 0, toOn := 0, noise_time:= 0]],
+			prot_act_times := [times := {20,0}, variabilities := {0,0}],
+			prot_deg_times := [times := {10, 2}, variabilities := {0.0, 0.0}]]);
+
+
+genes([		name := "productor",
+			proteins := {"Gprod"},
+			promoter := [function := "NOT",
+			transcription_factors := {"Gmem"},
+			noise := [toOff := 0, toOn := 0, noise_time:= 0]],
+			prot_act_times := [times := {0,0}, variabilities := {0,0}],
+			prot_deg_times := [times := {2,0}, variabilities := {0.0,0}]]);
+
+
+//Gen para evitar que las celulas de memoria activen sus funciones
+genes([		name := "deactivator",
+			proteins := {"Gmem"},
+			promoter := [function := "TRUE",
+			noise := [toOff := 0, toOn := 0, noise_time:= 0]],
+			prot_act_times := [times := {0,0}, variabilities := {0,0}],
+			prot_deg_times := [times := {0,0}, variabilities := {0,0}]]);
+
+//Gen de feedback
+genes([		name := "feedback",
+			proteins := {"GF1"},
+			promoter := [function := "YES",
+			transcription_factors := {"m1"},
+			noise := [toOff := 0, toOn := 0, noise_time:= 0]],
+			prot_act_times := [times := {0}, variabilities := {0}],
+			prot_deg_times := [times := {1.0}, variabilities := {0.0}]]);
+
+
+//Gen de relleno para poder utilizar las variables f1h1 y f1lo
+genes([		name := "hiDetector",
+			proteins := {"Gf1hi"},
+			promoter := [function := "YES",
+			transcription_factors := {"f1hi"},
+			noise := [toOff := 0, toOn := 0, noise_time:= 0]],
+			prot_act_times := [times := {0}, variabilities := {0}],
+			prot_deg_times := [times := {0.0}, variabilities := {0.0}]]);
+
+//Gen de relleno para poder utilizar las variables f1h1 y f1lo
+genes([		name := "loDetector",
+			proteins := {"Gf1lo"},
+			promoter := [function := "YES",
+			transcription_factors := {"f1lo"},
+			noise := [toOff := 0, toOn := 100, noise_time:= 0]],
+			prot_act_times := [times := {0}, variabilities := {0}],
+			prot_deg_times := [times := {0.0}, variabilities := {0.0}]]);
+
+
+
+//Plasmido que contendra los genes
+
+//Se carga cada gen por separado
+plasmids_genes ([p1 := {"base"}, p2:={"1b1m"}, p3:={"1m"}, p4:={"deactivator"}, p5:={"productor"}, p6:={"feedback", "hiDetector", "loDetector"}]);
+
+
+//GBASE tiñe verde
+action({"Gbase"},"d_paint",{"1","0","0","0"}); //Coloracion verde
+action({"-Gbase"},"d_paint",{"-1","0","0","0"});
+
+//GBASE tiñe rojo
+action({"G1b1m"},"d_paint",{"0","1","0","0"}); //Coloracion verde
+action({"-G1b1m"},"d_paint",{"0","-1","0","0"});
+
+//Gdeac tiñe azul
+action({"Gmem"},"d_paint",{"0","0","0","1"}); //Coloracion cyan
+action({"-Gmem"},"d_paint",{"0","0","0","-1"});
+
+//GM1 libera m1
+action({"GM1"},"s_emit_signal",{tostring(m1),"5","exact"});
+
+//GM1m libera menos m1
+action({"GM1m"},"s_emit_signal",{tostring(m1),"2","exact"});
+
+
+action({},"conjugate_directed",{"p1","100"});
+
+
+
+//Detectar m1
+action({},"s_get_QS",{tostring(m1),">","2","m1"});//Quorum sensing para m1
+
+//Detectar f1 alto
+action({},"s_get_QS",{tostring(m1),">","100","f1hi"});//Quorum sensing para f1
+
+
+//Detectar f1 bajo
+action({},"s_get_QS",{tostring(m1),"<","50","f1lo"});//Quorum sensing para f1
+
+
+//Pasar de base a 1b1m
+action({"Gf1lo","Gbase","Gprod"},"set_eex",{"p1"}); //Se bloquea la conjugacion de p1
+action({"Gf1lo","Gbase","Gprod"},"lose_plasmid",{"p1"}); //Se remueve el plasmido p1
+action({"Gf1lo","Gbase","Gprod"},"remove_eex",{"p2"}); //Se permite la conjugacion de p2
+
+//pasar de 1b1m a base
+action({"Gf1hi","G1b1m","Gprod"},"set_eex",{"p2"}); //Se repite lo mismo en cada paso, se bloquea el plasmido a elminar y se permite el traspaso del estado siguiente
+action({"Gf1hi","G1b1m","Gprod"},"lose_plasmid",{"p2"});
+action({"Gf1hi","G1b1m","Gprod"},"remove_eex",{"p1"});
+
+//pasar de base a 1m
+action({"Gf1hi","Gbase","Gprod"},"remove_eex",{"p3"});
+action({"Gf1hi","Gbase","Gprod"},"lose_plasmid",{"p1"});
+action({"Gf1hi","Gbase","Gprod"},"set_eex",{"p1"});
+
+//pasar de 1m a base
+action({"Gf1lo","G1m","Gprod"},"set_eex",{"p3"});
+action({"Gf1lo","G1m","Gprod"},"lose_plasmid",{"p3"});
+
+action({"Gf1lo","G1m","Gprod"},"remove_eex",{"p1"});
+
+
+action({},"conjugate_directed",{"p1","1000"});
+action({},"conjugate_directed",{"p2","1000"});
+action({},"conjugate_directed",{"p3","1000"});
+
+
+
+program p() :=
+{
+  
+	skip();
+};
+
+
+
+program report():=
+{
+	true: {  
+    //clear_messages(0),
+    clear_messages(1),
+	message(1 ,
+	 	"Cell: " <> tostring(id)
+	 //<> ", tf: " <> tostring(s_get_signal(tf))
+     <> ", m1: " <> tostring(s_get_signal(m1))
+	 //<> ", f1: " <> tostring(s_get_signal(f1))
+     //<> ", t: " <> tostring(dump_single(fp))
+
+    <> ", t: " <> tostring(t)
+
+	),
+
+
+	fprint ( ft, "t, id, m1\n");
+
+	fprint ( ft, t,",",id,",",tostring(s_get_signal(m1)));
+
+	
+	 //dump_multiple(ft,{t},{id},{tostring(s_get_signal(m1))},{tostring(s_get_signal(f1))});
+     //if s_get_signal(f1) > 10 then message(0 , "f1 mayor a 10: si") else message(0 ,"f1 mayor a 10: no") end
+     }
+};
+
+
+program main() :=
+{    true:
+	  {		
+
+		t := t + dt;
+
+		
+      }
+
+
+
+	action({},"set_growth_rate",{"0.015"});
+	c_ecolis(10, 0, 0, 100, {"p1", "p2", "p3", "p4"}, program p() + report()); //se cargan todos los plasmidos menos el de feedback en las celulas de memoria
+    c_ecolis(200, 0, 0, 100, {"p1", "p5", "p6"}, program p() + report()); //Se inicia la colonia solo con p1 y p5 (base y feedback)
+	action({"Gbase"},"set_eex",{"p4"});
+
+
+	//action({},"set_eex",{"p5"});
+    //action({"-Gdeac"},"remove_eex",{"p1"}); //remover la conjugacion solo en las celulas que no son de memoria
+
+
+
+
+};
